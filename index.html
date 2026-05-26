@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ระบบคลังสต็อกและจัดการบิล PO - คลังสมบูรณ์</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #ea580c;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background-color: var(--bg); color: var(--text); padding-bottom: 85px; }
+        header { background: var(--primary); color: white; padding: 15px; text-align: center; font-size: 1.2rem; font-weight: bold; position: sticky; top: 0; z-index: 100; }
+        .container { padding: 15px; max-width: 650px; margin: 0 auto; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .card { background: var(--card); border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; }
+        .stat-box { background: #f1f5f9; padding: 10px; border-radius: 8px; }
+        .stat-box .num { font-size: 1.2rem; font-weight: bold; color: var(--primary); margin-top: 5px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
+        .form-control { width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; outline: none; }
+        .form-control:focus { border-color: var(--primary); }
+        .btn-main { background: var(--success); color: white; border: none; width: 100%; padding: 12px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .btn-secondary { background: #64748b; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; }
+        
+        .filter-tabs { display: flex; gap: 5px; margin-bottom: 12px; }
+        .tab-btn { flex: 1; padding: 8px; border: 2px solid #cbd5e1; border-radius: 6px; background: white; font-weight: bold; cursor: pointer; text-align: center; font-size: 0.85rem; }
+        .tab-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        
+        .po-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.82rem; }
+        .po-table th, .po-table td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: middle; }
+        .po-table th { background: #f1f5f9; font-weight: bold; }
+
+        .po-card-item { border-left: 5px solid var(--primary); padding: 10px; margin-bottom: 10px; background: #f8fafc; border-radius: 0 8px 8px 0; }
+        .status-badge { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; color: white; }
+        
+        .price-match { color: var(--success); font-weight: bold; font-size: 0.78rem; }
+        .price-danger { color: var(--danger); font-weight: bold; font-size: 0.78rem; }
+        
+        .supplier-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; font-size: 0.75rem; margin-top: 2px; border: 1px solid #cbd5e1; }
+        .best-price { background: #dcfce7; color: #16a34a; border-color: #bbf7d0; font-weight: bold; }
+        
+        .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100; }
+        .nav-item { flex: 1; text-align: center; padding: 10px 1px; font-size: 0.65rem; color: #64748b; cursor: pointer; }
+        .nav-item.active { color: var(--primary); font-weight: bold; }
+        .nav-item-icon { font-size: 1.2rem; margin-bottom: 2px; }
+
+        #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay">
+        <div style="font-size: 2rem; margin-bottom: 10px;">🔄</div>
+        <div>กำลังเชื่อมต่อข้อมูล Cloud...</div>
+    </div>
+
+    <header id="app-title">Stock Manager CCKC</header>
+
+    <div class="container">
+        
+        <div id="page-dashboard" class="page active">
+            <div class="card">
+                <h3 style="color: var(--primary); margin-bottom: 12px;">📊 สรุปรายงานสถานะระบบคลัง</h3>
+                <div class="grid-3">
+                    <div class="stat-box">
+                        <span style="font-size: 0.8rem; color: gray;">มูลค่าสต็อกคงคลัง</span>
+                        <div class="num" id="dash-total-value" style="color: var(--success);">0 ฿</div>
+                    </div>
+                    <div class="stat-box">
+                        <span style="font-size: 0.8rem; color: gray;">บิล PO ทั้งหมด</span>
+                        <div class="num" id="dash-po-count">0 บิล</div>
+                    </div>
+                    <div class="stat-box">
+                        <span style="font-size: 0.8rem; color: gray;">จำนวนครั้งที่เบิก</span>
+                        <div class="num" id="dash-action-count" style="color: var(--warning);">0 ครั้ง</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h4 style="color:#6d28d9; margin-bottom: 8px; border-bottom: 2px solid #f1f5f9; padding-bottom: 5px;">🤝 สรุปเปรียบเทียบราคารับเข้า แยกตามร้านค้า</h4>
+                <div style="font-size:0.75rem; color:gray; margin-bottom:8px;">วิเคราะห์หาคู่ค้าที่ให้ราคาประหยัดที่สุดอัตโนมัติ จากบิล PO ทั้งหมด</div>
+                <div style="max-height: 280px; overflow-y: auto;">
+                    <table class="po-table" style="margin-top: 5px;">
+                        <thead>
+                            <tr>
+                                <th>วัตถุดิบ/สินค้า</th>
+                                <th>ร้านค้าที่เคยสั่งซื้อ (ราคาทุนต่อหน่วย)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dash-supplier-compare-rows">
+                            <tr><td colspan="2" style="text-align:center; color:gray; padding:10px;">กำลังประมวลผลข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h4 style="color: var(--danger); font-weight: bold;">⚠️ แจ้งเตือนวัตถุดิบเร่งด่วน (ใกล้หมด)</h4>
+                <div id="dash-alerts" style="margin-top: 8px; font-size: 0.9rem;"></div>
+            </div>
+
+            <div class="card">
+                <h4 style="color:#475569; margin-bottom: 8px; border-bottom: 2px solid #f1f5f9; padding-bottom: 5px;">📜 บันทึกกิจกรรมล่าสุดในระบบ (Logs)</h4>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table class="po-table" style="margin-top: 5px;">
+                        <thead>
+                            <tr>
+                                <th>วัน/เวลา</th>
+                                <th>ประเภทกิจกรรม</th>
+                                <th>รายละเอียดกิจกรรม (รวมราคา)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dash-log-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-list" class="page">
+            <div class="card">
+                <input type="text" id="search-input" class="form-control" placeholder="🔍 ค้นหาวัตถุดิบด่วน..." oninput="renderProductList()">
+                <div id="product-list-container" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+
+        <div id="page-po" class="page">
+            <div class="card">
+                <h3 style="color: var(--primary); margin-bottom:10px;">🧾 ออกใบสั่งซื้อสินค้า (เปิดบิล PO)</h3>
+                <div class="form-group">
+                    <label>เลขที่ใบสั่งซื้อ (PO Number)</label>
+                    <input type="text" id="po-number-input" class="form-control" style="border-color: #3b82f6; font-weight: bold; background: #eff6ff;" placeholder="กรุณาระบุเลขที่บิลสั่งซื้อ">
+                </div>
+                <div class="form-group">
+                    <label>ร้านค้า/Supplier</label>
+                    <input type="text" id="po-supplier" class="form-control" placeholder="เช่น ตลาดสดเฮียตี๋, แม็คโคร">
+                </div>
+                
+                <hr style="margin:15px 0; border: 0; border-top:1px solid #cbd5e1;">
+                <h4 style="margin-bottom:8px;">➕ เพิ่มสินค้าเข้าบิล</h4>
+                
+                <div class="filter-tabs">
+                    <button class="tab-btn active" id="po-tab-all" onclick="changePoCategoryFilter('ALL')">ทั้งหมด</button>
+                    <button class="tab-btn" id="po-tab-material" onclick="changePoCategoryFilter('วัตถุดิบ')">🥕 วัตถุดิบ</button>
+                    <button class="tab-btn" id="po-tab-equipment" onclick="changePoCategoryFilter('อุปกรณ์')">🛠️ อุปกรณ์</button>
+                </div>
+
+                <div class="form-group">
+                    <label>เลือกสินค้าในคลัง</label>
+                    <select id="po-item-select" class="form-control" onchange="autoFillLastCost()"></select>
+                </div>
+                
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>ราคาทุนต่อหน่วย (฿)</label>
+                        <input type="number" id="po-item-cost" class="form-control" placeholder="0">
+                    </div>
+                    <div class="form-group">
+                        <label>จำนวนที่สั่งซื้อ</label>
+                        <input type="number" id="po-item-qty" class="form-control" placeholder="0">
+                    </div>
+                </div>
+                <button class="btn-secondary" style="background:var(--primary); width:100%; margin-top: 5px;" onclick="addItemToPoCart()">➕ เพิ่มรายการลงบิล</button>
+
+                <table class="po-table" style="margin-top:20px;">
+                    <thead>
+                        <tr>
+                            <th>สินค้า</th>
+                            <th>ราคาทุน</th>
+                            <th>จำนวน</th>
+                            <th>รวม (฿)</th>
+                            <th>ลบ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="po-cart-rows"></tbody>
+                </table>
+                <div style="text-align: right; font-weight: bold; margin-top:10px; font-size:1.1rem;">
+                    ยอดรวมทั้งบิล: <span id="po-cart-total" style="color:var(--danger);">0</span> บาท
+                </div>
+
+                <button class="btn-main" onclick="submitNewPO()">💾 บันทึกและเปิดบิลสั่งซื้อไปยัง Cloud</button>
+            </div>
+        </div>
+
+        <div id="page-receive" class="page">
+            <div id="receive-list-section">
+                <div class="card">
+                    <h3 style="margin-bottom:10px; color:#7e22ce;">📋 เลือกบิล PO เพื่อตรวจรับของเข้าคลัง</h3>
+                    <div id="po-receive-list-container"></div>
+                </div>
+            </div>
+
+            <div id="receive-detail-section" style="display: none;">
+                <div class="card" style="padding: 10px;">
+                    <button class="btn-secondary" style="background:#64748b; margin-bottom:12px;" onclick="cancelReceiveDetail()">🔙 กลับเลือกบิลใบอื่น</button>
+                    <h3 style="color: var(--success); font-size:1.1rem;" id="rec-title">ตรวจรับของบิลเลขที่: </h3>
+                    <p style="font-size:0.85rem; color:gray;" id="rec-supplier">ผู้จัดส่ง: </p>
+                    
+                    <table class="po-table" style="margin-top:12px;">
+                        <thead>
+                            <tr>
+                                <th>ชื่อสินค้า</th>
+                                <th>ราคาในบิล PO</th>
+                                <th>ทุนเดิมในคลัง</th>
+                                <th>สั่ง / รับแล้ว</th>
+                                <th style="color:var(--success); width:95px;">รอบนี้รับจริง 📥</th>
+                            </tr>
+                        </thead>
+                        <tbody id="receive-item-rows"></tbody>
+                    </table>
+                    
+                    <button class="btn-main" style="background:var(--success); margin-top:20px;" onclick="submitPOReceipt()">บันทึกยอดนับจริง และเติมสต็อกอัตโนมัติ</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-action" class="page">
+            <div class="card">
+                <h3>🍳 บันทึกการใช้งาน/เบิกของในครัว</h3>
+                <br>
+                <div class="form-group">
+                    <label>เลือกวัตถุดิบที่ต้องการเบิก</label>
+                    <select id="action-product-select" class="form-control"></select>
+                </div>
+                <div class="form-group">
+                    <label>จำนวนที่ใช้/เบิกออก</label>
+                    <input type="number" id="action-qty" class="form-control" placeholder="ใส่จำนวน">
+                </div>
+                <button class="btn-main" style="background: var(--warning);" onclick="checkoutStock()">🔥 ตัดสต็อกเรียลไทม์</button>
+            </div>
+
+            <div class="card">
+                <h4 style="color: var(--warning); margin-bottom: 8px;">📋 ประวัติการเบิกของในครัว</h4>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table class="po-table">
+                        <thead>
+                            <tr>
+                                <th>วัน/เดือน/ปี เวลา</th>
+                                <th>ชื่อวัตถุดิบ</th>
+                                <th>จำนวนที่เบิก</th>
+                            </tr>
+                        </thead>
+                        <tbody id="action-history-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="nav-bar">
+        <div class="nav-item active" onclick="switchPage('dashboard', this)">
+            <div class="nav-item-icon">📊</div><div>หน้าแรก</div>
+        </div>
+        <div class="nav-item" onclick="switchPage('list', this)">
+            <div class="nav-item-icon">📦</div><div>คลังวัตถุดิบ</div>
+        </div>
+        <div class="nav-item" onclick="switchPage('po', this)">
+            <div class="nav-item-icon">🧾</div><div>เปิดบิล PO</div>
+        </div>
+        <div class="nav-item" onclick="switchPage('receive', this)">
+            <div class="nav-item-icon">📥</div><div>ตรวจรับของ</div>
+        </div>
+        <div class="nav-item" onclick="switchPage('action', this)">
+            <div class="nav-item-icon">🍳</div><div>เบิกของครัว</div>
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ ใส่ลิงก์ Web App URL ของคุณที่ช่องนี้
+        const API_URL = "https://script.google.com/macros/s/AKfycbzDroc3acONbl-MX38MMNDNPYyQb3ZW9nYzF5h2QfIlf9ZaRhFsX4D9sYwv1U19gCVBcg/exec";
+
+        let products = [];
+        let transactions = [];
+        let pos = []; 
+        let currentPoCart = []; 
+        let activeReceivePo = null; 
+        let poCategoryFilter = "ALL"; 
+
+        window.onload = function() {
+            fetchDataFromCloud();
+        };
+
+        async function fetchDataFromCloud() {
+            showLoading(true);
+            try {
+                let response = await fetch(`${API_URL}?action=getData`);
+                let data = await response.json();
+                products = data.products || [];
+                transactions = data.transactions || [];
+                pos = data.pos || [];
+
+                updateDashboard();
+                populateSelectOptions();
+                renderPOReceiveList();
+                generatePoNumber();
+                renderActionHistory(); 
+            } catch (error) {
+                console.error(error);
+                alert("ไม่สามารถติดต่อ Cloud ได้");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function sendDataToCloud(actionType, payload) {
+            showLoading(true);
+            try {
+                let response = await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({ action: actionType, data: payload })
+                });
+                let resJson = await response.json();
+                if(resJson.status === "error") {
+                    alert("❌ ล้มเหลว: " + resJson.message);
+                } else {
+                    alert("🎉 บันทึกข้อมูลสำเร็จ!");
+                }
+                fetchDataFromCloud();
+            } catch (error) {
+                setTimeout(() => { fetchDataFromCloud(); }, 1200);
+            }
+        }
+
+        function showLoading(status) {
+            document.getElementById('loading-overlay').style.display = status ? 'flex' : 'none';
+        }
+
+        function switchPage(pageId, element) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            
+            document.getElementById('page-' + pageId).classList.add('active');
+            if(element) element.classList.add('active');
+
+            if(pageId === 'dashboard') updateDashboard();
+            if(pageId === 'list') renderProductList();
+            if(pageId === 'po') { generatePoNumber(); changePoCategoryFilter('ALL'); }
+            if(pageId === 'receive') { cancelReceiveDetail(); renderPOReceiveList(); }
+            if(pageId === 'action') renderActionHistory();
+        }
+
+        function generatePoNumber() {
+            let now = new Date();
+            let dateStr = now.getFullYear() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0');
+            let rand = Math.floor(1000 + Math.random() * 9000);
+            document.getElementById('po-number-input').value = `PO-${dateStr}-${rand}`;
+        }
+
+        function populateSelectOptions() {
+            const poSelect = document.getElementById('po-item-select');
+            const actionSelect = document.getElementById('action-product-select');
+            poSelect.innerHTML = '';
+            actionSelect.innerHTML = '';
+
+            products.forEach(p => {
+                let op2 = document.createElement('option');
+                op2.value = p.id; op2.innerText = `${p.name} (คงเหลือ: ${p.stock} ${p.unit})`;
+                actionSelect.appendChild(op2);
+            });
+
+            let filteredPoProducts = products.filter(p => poCategoryFilter === "ALL" || p.category === poCategoryFilter);
+            filteredPoProducts.forEach(p => {
+                let op1 = document.createElement('option');
+                op1.value = p.id; 
+                op1.innerText = `${p.name} [${p.category}]`;
+                poSelect.appendChild(op1);
+            });
+            autoFillLastCost();
+        }
+
+        function changePoCategoryFilter(category) {
+            poCategoryFilter = category;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            if(category === 'ALL') document.getElementById('po-tab-all').classList.add('active');
+            if(category === 'วัตถุดิบ') document.getElementById('po-tab-material').classList.add('active');
+            if(category === 'อุปกรณ์') document.getElementById('po-tab-equipment').classList.add('active');
+            populateSelectOptions();
+        }
+
+        function autoFillLastCost() {
+            const pId = document.getElementById('po-item-select').value;
+            if(!pId) { document.getElementById('po-item-cost').value = ''; return; }
+            let prod = products.find(p => p.id == pId);
+            if(prod) { document.getElementById('po-item-cost').value = prod.cost; }
+        }
+
+        // --- ฟังก์ชันหลัก: คำนวณสรุปแดชบอร์ด, วิเคราะห์คู่ค้า และแก้ไขเรื่องวันที่และคำนวณราคารวมใน Logs ---
+        function updateDashboard() {
+            let totalVal = 0;
+            let alertHtml = '';
+            let actionCount = 0;
+
+            products.forEach(p => {
+                totalVal += (p.cost * p.stock);
+                if(p.stock <= p.min) {
+                    alertHtml += `⚠️ <b>${p.name}</b> เหลือเพียง ${p.stock} (ขั้นต่ำ ${p.min})<br>`;
+                }
+            });
+
+            transactions.forEach(t => {
+                if(t.type && (t.type.includes("เบิก") || t.type === "ISSUE")) actionCount++;
+            });
+
+            document.getElementById('dash-total-value').innerText = totalVal.toLocaleString() + " ฿";
+            document.getElementById('dash-po-count').innerText = pos.length + " บิล";
+            document.getElementById('dash-action-count').innerText = actionCount + " ครั้ง";
+            document.getElementById('dash-alerts').innerHTML = alertHtml || '✅ วัตถุดิบและอุปกรณ์เพียงพอดีทั้งหมดครับ';
+
+            // ระบบรวบรวมและวิเคราะห์ราคาร้านค้าต่อร้านค้า
+            const supplierCompareBody = document.getElementById('dash-supplier-compare-rows');
+            supplierCompareBody.innerHTML = '';
+            let itemSupplierMap = {};
+
+            pos.forEach(po => {
+                let splName = po.supplier ? po.supplier.trim() : "ไม่ระบุร้านค้า";
+                if(po.items && Array.isArray(po.items)) {
+                    po.items.forEach(item => {
+                        let pName = item.productName;
+                        let cost = parseFloat(item.cost) || 0;
+                        if(!itemSupplierMap[pName]) { itemSupplierMap[pName] = {}; }
+                        if(!itemSupplierMap[pName][splName] || itemSupplierMap[pName][splName] > cost) {
+                            itemSupplierMap[pName][splName] = cost;
+                        }
+                    });
+                }
+            });
+
+            let productNames = Object.keys(itemSupplierMap);
+            if(productNames.length === 0) {
+                supplierCompareBody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:gray;">ยังไม่มีประวัติการเปิดบิลเพื่อเปรียบเทียบร้านค้า</td></tr>';
+            } else {
+                productNames.forEach(pName => {
+                    let suppliers = itemSupplierMap[pName];
+                    let supplierKeys = Object.keys(suppliers);
+                    let minPrice = Math.min(...Object.values(suppliers));
+                    let tagsHtml = "";
+                    supplierKeys.forEach(sKey => {
+                        let currentPrice = suppliers[sKey];
+                        let isBest = currentPrice === minPrice && supplierKeys.length > 1;
+                        let badgeClass = isBest ? "supplier-tag best-price" : "supplier-tag";
+                        let crown = isBest ? "👑 " : "";
+                        tagsHtml += `<span class="${badgeClass}">${crown}${sKey}: <b>${currentPrice.toLocaleString()} ฿</b></span> `;
+                    });
+                    supplierCompareBody.innerHTML += `<tr><td><b>${pName}</b></td><td>${tagsHtml}</td></tr>`;
+                });
+            }
+
+            // ระบบบันทึกรายละเอียดกิจกรรม (Logs) ด้านล่าง
+            const logBody = document.getElementById('dash-log-rows');
+            logBody.innerHTML = '';
+            
+            if(transactions.length === 0) {
+                logBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:gray;">ยังไม่มีบันทึกข้อมูล</td></tr>';
+                return;
+            }
+
+            [...transactions].reverse().forEach(t => {
+                let formattedDate = t.date ? formatDate(t.date) : '-';
+                if(formattedDate.includes("1899") || formattedDate.includes("30/12")) {
+                    formattedDate = new Date().toLocaleDateString('th-TH'); 
+                }
+                
+                let typeStr = t.type || "บันทึกรายการ";
+                let typeColor = typeStr.includes("เบิก") ? "color:var(--warning);" : "color:var(--success);";
+                let finalDetailText = "";
+                
+                let pName = t.productName || t.name || "";
+                let qty = parseFloat(t.qty) || 0;
+                let costEach = parseFloat(t.cost) || 0;
+
+                if (pName && qty > 0) {
+                    let computedTotal = costEach * qty;
+                    finalDetailText = `<b>${pName}</b> จำนวน ${qty.toLocaleString()} ชิ้น <br><span style="color:gray; font-size:0.8rem;">(ต้นทุน @${costEach.toLocaleString()} ฿ | ยอดรวม: <b>${computedTotal.toLocaleString()} ฿</b>)</span>`;
+                } else {
+                    let fallbackDetail = t.detail || "";
+                    if (!fallbackDetail && pName) {
+                        fallbackDetail = `รายการ: ${pName} (${costEach > 0 ? 'มูลค่ารวม ' + costEach.toLocaleString() + ' ฿' : 'ทำรายการสำเร็จ'})`;
+                    }
+                    finalDetailText = fallbackDetail || "ทำรายการสำเร็จ";
+                }
+
+                logBody.innerHTML += `
+                    <tr>
+                        <td><small>${formattedDate}<br>${t.time || ''}</small></td>
+                        <td style="${typeColor}"><b>${typeStr}</b></td>
+                        <td>${finalDetailText}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderActionHistory() {
+            const tbody = document.getElementById('action-history-rows');
+            tbody.innerHTML = '';
+            let filterActions = transactions.filter(t => t.type === "เบิกออกครัว" || t.type === "ISSUE");
+
+            if(filterActions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:gray; padding:15px;">ยังไม่มีประวัติการเบิกของในระบบ</td></tr>';
+                return;
+            }
+
+            [...filterActions].reverse().forEach(t => {
+                let finalDateStr = formatDate(t.date);
+                if(finalDateStr.includes("1899")) finalDateStr = new Date().toLocaleDateString('th-TH');
+                tbody.innerHTML += `
+                    <tr>
+                        <td><b>${finalDateStr}</b> <span style="color:gray; font-size:0.75rem;">${t.time || ''}</span></td>
+                        <td>${t.productName || 'ไม่ระบุชื่อ'}</td>
+                        <td style="color:var(--danger); font-weight:bold;">-${t.qty}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function formatDate(dateInput) {
+            if(!dateInput) return '-';
+            try {
+                let d = new Date(dateInput);
+                if(isNaN(d.getTime())) return dateInput; 
+                return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+            } catch(e) { return dateInput; }
+        }
+
+        function addItemToPoCart() {
+            const pId = document.getElementById('po-item-select').value;
+            const cost = parseFloat(document.getElementById('po-item-cost').value);
+            const qty = parseFloat(document.getElementById('po-item-qty').value);
+
+            if(!pId) { alert("ไม่มีรายการสินค้าให้เลือกเพิ่ม"); return; }
+            if(isNaN(cost) || isNaN(qty) || qty <= 0) { alert("กรุณาระบุต้นทุนและจำนวนให้ถูกต้อง"); return; }
+            let prod = products.find(p => p.id == pId);
+            
+            let existing = currentPoCart.find(i => i.productId === pId);
+            if(existing) {
+                existing.qty += qty;
+                existing.cost = cost; 
+            } else {
+                currentPoCart.push({ productId: pId, productName: prod.name, cost: cost, qty: qty });
+            }
+            document.getElementById('po-item-qty').value = ''; 
+            renderPoCart();
+        }
+
+        function removeCartItem(index) {
+            currentPoCart.splice(index, 1);
+            renderPoCart();
+        }
+
+        function renderPoCart() {
+            const tbody = document.getElementById('po-cart-rows');
+            tbody.innerHTML = '';
+            let total = 0;
+            currentPoCart.forEach((item, index) => {
+                let subtotal = item.cost * item.qty;
+                total += subtotal;
+                tbody.innerHTML += `
+                    <tr>
+                        <td><b>${item.productName}</b></td>
+                        <td>${item.cost} ฿</td>
+                        <td>${item.qty}</td>
+                        <td>${subtotal.toLocaleString()} ฿</td>
+                        <td><button style="background:var(--danger); color:white; border:none; padding:3px 7px; border-radius:4px; cursor:pointer;" onclick="removeCartItem(${index})">❌</button></td>
+                    </tr>
+                `;
+            });
+            document.getElementById('po-cart-total').innerText = total.toLocaleString();
+        }
+
+        function submitNewPO() {
+            const poNum = document.getElementById('po-number-input').value.trim();
+            const supplier = document.getElementById('po-supplier').value.trim();
+            const totalVal = parseFloat(document.getElementById('po-cart-total').innerText.replace(/,/g, ''));
+
+            if(!poNum) { alert("กรุณาระบุเลขที่ใบสั่งซื้อ!"); return; }
+            if(!supplier || currentPoCart.length === 0) { alert("กรุณากรอกชื่อร้านค้าและเพิ่มรายการสินค้าก่อนครับ"); return; }
+
+            let payload = {
+                poNumber: poNum,
+                supplier: supplier,
+                totalValue: totalVal,
+                items: currentPoCart,
+                timeStr: new Date().toLocaleTimeString('th-TH'),
+                rawDateIso: new Date().toISOString()
+            };
+
+            sendDataToCloud("createPO", payload);
+            currentPoCart = [];
+            document.getElementById('po-supplier').value = '';
+            renderPoCart();
+        }
+
+        function renderPOReceiveList() {
+            const container = document.getElementById('po-receive-list-container');
+            container.innerHTML = '';
+            if(pos.length === 0) {
+                container.innerHTML = '<p style="color:gray; text-align:center; padding:15px;">ยังไม่มีประวัติบิล PO</p>';
+                return;
+            }
+
+            [...pos].reverse().forEach(po => {
+                let isCompleted = po.status === "รับครบแล้ว";
+                let statusColor = isCompleted ? "var(--success)" : po.status === "รับบางส่วน" ? "var(--warning)" : "#64748b";
+                let actionBtn = !isCompleted 
+                    ? `<button class="btn-main" style="margin-top:8px; padding:8px; font-size:0.9rem;" onclick="openReceiveDetailSub('${po.poNumber}')">📥 ตรวจรับสิ่งของเข้าสต็อก</button>`
+                    : `<button class="btn-secondary" style="margin-top:8px; width:100%; background:#e2e8f0; color:#475569;" disabled>✅ สินค้านำเข้าครบถ้วนแล้ว</button>`;
+
+                container.innerHTML += `
+                    <div class="po-card-item" style="border-left-color: ${statusColor};">
+                        <div style="display:flex; justify-content:space-between; font-weight:bold;">
+                            <span>📄 ${po.poNumber}</span>
+                            <span class="status-badge" style="background:${statusColor}">${po.status}</span>
+                        </div>
+                        <div style="font-size:0.85rem; color:#475569; margin-top:4px;">
+                            ร้านค้า: <b>${po.supplier}</b> | มูลค่าบิล: ${po.totalValue.toLocaleString()} บาท
+                        </div>
+                        ${actionBtn}
+                    </div>
+                `;
+            });
+        }
+
+        function openReceiveDetailSub(poNumber) {
+            let po = pos.find(p => p.poNumber === poNumber);
+            if(!po) return;
+            activeReceivePo = po;
+
+            document.getElementById('rec-title').innerText = "ตรวจรับของบิลเลขที่: " + po.poNumber;
+            document.getElementById('rec-supplier').innerText = "ผู้จัดส่ง/Supplier: " + po.supplier;
+
+            const tbody = document.getElementById('receive-item-rows');
+            tbody.innerHTML = '';
+
+            po.items.forEach(item => {
+                let maxCanReceive = item.qty - item.receivedQty;
+                let currentInStockProd = products.find(p => p.id == item.productId || p.name === item.productName);
+                let currentStockCost = currentInStockProd ? parseFloat(currentInStockProd.cost) : 0;
+                let poCost = parseFloat(item.cost) || 0;
+
+                let priceAnalysisHtml = "";
+                if(currentStockCost > 0) {
+                    if (poCost > currentStockCost) {
+                        priceAnalysisHtml = `<br><span class="price-danger">🔺 แพงกว่าคลัง (+${(poCost - currentStockCost).toLocaleString()} ฿)</span>`;
+                    } else if (poCost < currentStockCost) {
+                        priceAnalysisHtml = `<br><span class="price-match">📉 ถูกกว่าคลัง (-${(currentStockCost - poCost).toLocaleString()} ฿)</span>`;
+                    } else { priceAnalysisHtml = `<br><span class="price-match">🟢 ราคาเท่าทุนเดิม</span>`; }
+                } else { priceAnalysisHtml = `<br><small style="color:gray;">(ไม่มีทุนเดิม)</small>`; }
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td><b>${item.productName}</b></td>
+                        <td><b>${poCost.toLocaleString()} ฿</b>${priceAnalysisHtml}</td>
+                        <td style="color:#64748b;">${currentStockCost > 0 ? currentStockCost.toLocaleString() + ' ฿' : '-'}</td>
+                        <td>${item.qty} / <span style="color:blue; font-weight:bold;">${item.receivedQty}</span></td>
+                        <td>
+                            <input type="number" class="form-control rec-input" 
+                                   data-id="${item.productId}" 
+                                   data-cost="${item.cost}"
+                                   data-max="${maxCanReceive}" 
+                                   value="${maxCanReceive}" style="padding:6px; width:85px; text-align:center; font-weight:bold; color:var(--success);">
+                        </td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('receive-list-section').style.display = 'none';
+            document.getElementById('receive-detail-section').style.display = 'block';
+        }
+
+        function cancelReceiveDetail() {
+            activeReceivePo = null;
+            document.getElementById('receive-list-section').style.display = 'block';
+            document.getElementById('receive-detail-section').style.display = 'none';
+        }
+
+        function submitPOReceipt() {
+            if(!activeReceivePo) return;
+            let receivedItems = [];
+            let inputs = document.querySelectorAll('.rec-input');
+            let totalOrdered = 0;
+            let totalReceivedCumulative = 0;
+
+            for(let input of inputs) {
+                let productId = input.getAttribute('data-id');
+                let cost = parseFloat(input.getAttribute('data-cost'));
+                let incomingQty = parseFloat(input.value) || 0;
+                if(incomingQty < 0) { alert("ห้ามป้อนค่าติดลบครับ"); return; }
+
+                let origItem = activeReceivePo.items.find(i => i.productId === productId);
+                totalOrdered += origItem.qty;
+                totalReceivedCumulative += (origItem.receivedQty + incomingQty);
+
+                if(incomingQty > 0) {
+                    receivedItems.push({ productId: productId, incomingQty: incomingQty, cost: cost });
+                }
+            }
+
+            if(receivedItems.length === 0) { alert("กรุณาระบุตัวเลขรอบรับจริงอย่างน้อย 1 ช่อง"); return; }
+            let newStatus = totalReceivedCumulative >= totalOrdered ? "รับครบแล้ว" : "รับบางส่วน";
+
+            let payload = {
+                poNumber: activeReceivePo.poNumber,
+                newStatus: newStatus,
+                receivedItems: receivedItems,
+                timeStr: new Date().toLocaleTimeString('th-TH'),
+                rawDateIso: new Date().toISOString()
+            };
+
+            sendDataToCloud("receivePO", payload);
+            cancelReceiveDetail();
+            switchPage('dashboard', document.querySelectorAll('.nav-item')[0]);
+        }
+
+        function renderProductList() {
+            const keyword = document.getElementById('search-input').value.toLowerCase();
+            const container = document.getElementById('product-list-container');
+            container.innerHTML = '';
+            let filtered = products.filter(p => p.name.toLowerCase().includes(keyword));
+            filtered.forEach(p => {
+                container.innerHTML += `
+                    <div style="padding:10px; border-bottom:1px solid #e2e8f0;">
+                        <b>${p.name}</b> <br>
+                        <small style="color:gray;">หมวด: ${p.category} | ต้นทุนล่าสุด: ${p.cost} ฿</small><br>
+                        <span style="font-weight:bold; color:var(--primary);">คงเหลือปัจจุบัน: ${p.stock} ${p.unit}</span>
+                    </div>
+                `;
+            });
+        }
+
+        function checkoutStock() {
+            const pId = document.getElementById('action-product-select').value;
+            const qty = parseFloat(document.getElementById('action-qty').value);
+            if(!pId || !qty || qty <= 0) { alert('ข้อมูลไม่ถูกต้อง'); return; }
+
+            let prod = products.find(p => p.id == pId);
+            if(prod && prod.stock < qty) { alert('สต็อกมีไม่พอให้เบิกครับ!'); return; }
+
+            sendDataToCloud("checkoutStock", { id: pId, qty: qty, timeStr: new Date().toLocaleTimeString('th-TH'), rawDateIso: new Date().toISOString() });
+            document.getElementById('action-qty').value = '';
+            switchPage('dashboard', document.querySelectorAll('.nav-item')[0]);
+        }
+    </script>
+</body>
+</html>
